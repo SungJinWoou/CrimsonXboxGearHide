@@ -32,6 +32,29 @@ jobs:
           if (!(Test-Path 'source/CrimsonDesertCore/external/DetourModKit/CMakeLists.txt')) { throw 'Dependances DetourModKit manquantes dans le ZIP' }
           cmake --version
 
+      # Le ZIP ne contient pas les metadonnees .git des sous-modules.
+      # DetourModKit exige une vraie copie Git de SafetyHook au commit exact.
+      - name: Restaurer SafetyHook au commit requis par DetourModKit
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $hookDir = 'source/CrimsonDesertCore/external/DetourModKit/external/safetyhook'
+          $commit = 'f44cc070a8340f2f26649553c49533475417304d'
+          if (Test-Path -LiteralPath $hookDir) {
+            Remove-Item -LiteralPath $hookDir -Recurse -Force
+          }
+          git clone --quiet https://github.com/cursey/safetyhook.git $hookDir
+          if ($LASTEXITCODE -ne 0) { throw 'Le clone de SafetyHook a echoue.' }
+          git -C $hookDir checkout --quiet --detach $commit
+          if ($LASTEXITCODE -ne 0) { throw 'Le commit SafetyHook attendu est introuvable.' }
+          $actual = (git -C $hookDir rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or $actual -ne $commit) {
+            throw "SafetyHook non conforme : $actual"
+          }
+          $gitRoot = (git -C $hookDir rev-parse --show-toplevel).Trim()
+          Write-Host "SafetyHook pret : $actual"
+          Write-Host "Depot Git autonome : $gitRoot"
+
       - name: Configurer avec Visual Studio 2022 x64
         shell: pwsh
         working-directory: source/CrimsonDesertEquipHide

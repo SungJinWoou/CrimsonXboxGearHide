@@ -1,0 +1,65 @@
+name: Compiler CrimsonXboxGearHide (Windows)
+
+on:
+  push:
+    paths:
+      - "CrimsonXboxGearHide_Source.zip"
+      - ".github/workflows/build.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-2022
+    timeout-minutes: 40
+    steps:
+      - name: Recuperer le depot
+        uses: actions/checkout@v4
+
+      - name: Installer CMake 3.31.6
+        uses: lukka/get-cmake@latest
+        with:
+          cmakeVersion: "3.31.6"
+
+      - name: Extraire le code source du ZIP
+        shell: pwsh
+        run: |
+          if (!(Test-Path 'CrimsonXboxGearHide_Source.zip')) { throw 'Archive CrimsonXboxGearHide_Source.zip manquante dans la racine du depot' }
+          Expand-Archive -LiteralPath 'CrimsonXboxGearHide_Source.zip' -DestinationPath 'source' -Force
+          if (!(Test-Path 'source/CrimsonDesertEquipHide/CMakePresets.json')) { throw 'Arborescence source incorrecte : fichier CMakePresets.json introuvable' }
+          if (!(Test-Path 'source/CrimsonDesertCore/external/DetourModKit/CMakeLists.txt')) { throw 'Dependances DetourModKit manquantes dans le ZIP' }
+          cmake --version
+
+      - name: Configurer avec Visual Studio 2022 x64
+        shell: pwsh
+        working-directory: source/CrimsonDesertEquipHide
+        run: |
+          cmake --preset msvc-release
+          if ($LASTEXITCODE -ne 0) { throw 'Echec de configuration CMake (voir les logs ci-dessus)' }
+
+      - name: Compiler le plugin ASI
+        shell: pwsh
+        working-directory: source/CrimsonDesertEquipHide
+        run: |
+          cmake --build build/release-msvc --config Release --parallel 2
+          if ($LASTEXITCODE -ne 0) { throw 'Echec de compilation C++ (voir les logs ci-dessus)' }
+
+      - name: Preparer les fichiers de test
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path 'resultat' | Out-Null
+          $asi = Get-ChildItem -Path 'source/CrimsonDesertEquipHide/build/release-msvc' -Filter 'CrimsonDesertEquipHide.asi' -Recurse -File | Select-Object -First 1
+          if (!$asi) { throw 'La compilation ne contient pas de fichier CrimsonDesertEquipHide.asi' }
+          Copy-Item $asi.FullName 'resultat/CrimsonDesertEquipHide.asi'
+          Copy-Item 'source/CrimsonDesertEquipHide_Xbox_Test.ini' 'resultat/CrimsonDesertEquipHide.ini'
+          Copy-Item 'source/LICENSE_ORIGINAL_MIT.txt' 'resultat/LICENSE_ORIGINAL_MIT.txt'
+          "EXPERIMENTAL: hooks disabled by default in the provided INI. Never replace winmm.dll or your DMM ASI loader." | Set-Content -Encoding UTF8 'resultat/AVANT_INSTALLATION.txt'
+
+      - name: Publier le resultat de compilation
+        uses: actions/upload-artifact@v4
+        with:
+          name: CrimsonXboxGearHide-ASI-experimental
+          path: resultat/
+          if-no-files-found: error
